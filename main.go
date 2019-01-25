@@ -6,7 +6,9 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sort"
 	"strconv"
+	"text/tabwriter"
 	"unicode"
 )
 
@@ -90,31 +92,33 @@ func (p *Processor) GetWeight() float64 {
 	return sum
 }
 
-func (p *Processor) GetAtomicRelation() map[string]float64 {
-	res := make(map[string]float64)
-
-	sumOfAll := 0
-	for _, amount := range p.elementCounter {
-		sumOfAll += amount
+func (p *Processor) getTotalWeight() float64 {
+	sumOfAll := float64(0)
+	for el, amount := range p.elementCounter {
+		ame := MapOfEls[el].Weight
+		sumOfAll += ame * float64(amount)
 	}
 
+	return sumOfAll
+}
+
+func (p *Processor) GetSubTotalMass() map[string]float64 {
+	res := make(map[string]float64)
+
 	for el, amount := range p.elementCounter {
-		res[el] = float64(amount) / float64(sumOfAll)
+		res[el] = float64(amount) * MapOfEls[el].Weight
 	}
 
 	return res
 }
 
-func (p *Processor) GetWeightRelation() map[string]float64 {
+func (p *Processor) GetSubTotalRelation() map[string]float64 {
 	res := make(map[string]float64)
 
-	weightOfAll := float64(0)
-	for el, amount := range p.elementCounter {
-		weightOfAll += MapOfEls[el].Weight * float64(amount)
-	}
+	sumOfAll := p.getTotalWeight()
 
 	for el, amount := range p.elementCounter {
-		res[el] = (MapOfEls[el].Weight * float64(amount)) / float64(weightOfAll)
+		res[el] = (MapOfEls[el].Weight * float64(amount)) / float64(sumOfAll)
 	}
 
 	return res
@@ -129,9 +133,26 @@ type Element struct {
 
 var MapOfEls map[string]*Element
 
+type elements []*Element
+
+func (els elements) Len() int {
+	return len(els)
+}
+
+func (els elements) Less(x, y int) bool {
+	if els[x].AtomicNumber < els[y].AtomicNumber {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (els elements) Swap(x, y int) {
+	els[x], els[y] = els[y], els[x]
+}
+
 func main() {
-	atomicRelation := flag.Bool("atomic-relation", false, "print relations of atoms")
-	weightRelation := flag.Bool("weight-relation", false, "print relations of atomic weight")
+	verbose := flag.Bool("verbose", false, "print additional information")
 	flag.Parse()
 
 	input := flag.Arg(0)
@@ -147,15 +168,28 @@ func main() {
 		return
 	}
 
-	fmt.Println(p.GetWeight())
+	if !(*verbose) {
+		fmt.Println(p.GetWeight())
+	} else {
+		fmt.Println("total mass", p.GetWeight())
+		w := tabwriter.NewWriter(os.Stdout, 15, 4, 0, ' ', 0)
+		fmt.Fprintf(w, "element\tsymbol\tame\tsubtotal_ame\tsubtotal_%%\n")
+		subtotalMassMap := p.GetSubTotalMass()
+		subtotalRelMap := p.GetSubTotalRelation()
+		var els elements
+		for elSym := range p.elementCounter {
+			els = append(els, MapOfEls[elSym])
+		}
+		sort.Sort(els)
 
-	if *atomicRelation {
-		fmt.Println("atomic relation")
-		fmt.Println(p.GetAtomicRelation())
-	}
-
-	if *weightRelation {
-		fmt.Println("atomic weight relation")
-		fmt.Println(p.GetWeightRelation())
+		for _, el := range els {
+			name := el.Name
+			symbol := el.Symbol
+			ame := el.Weight
+			subtotalMass := subtotalMassMap[el.Symbol]
+			subtotalRel := subtotalRelMap[el.Symbol] * 100
+			fmt.Fprintf(w, "%s\t%s\t%.2f\t%.2f\t%.2f\n", name, symbol, ame, subtotalMass, subtotalRel)
+		}
+		w.Flush()
 	}
 }
